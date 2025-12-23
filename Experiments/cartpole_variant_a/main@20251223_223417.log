@@ -1,0 +1,10 @@
+2025-12-23 22:34:17,959 [pid 30458] INFO: Experiment cartpole_variant_a started at 20251223_223417
+2025-12-23 22:34:17,960 [pid 30458] INFO: Using device: cpu
+2025-12-23 22:34:18,435 [pid 30458] INFO: Experiment cartpole_variant_a started
+2025-12-23 22:34:18,436 [pid 30458] INFO: Experiment config: <src.experiments.multi_alignment_ppo.MultiAlignmentPPOConfig object at 0x100f08ad0>
+2025-12-23 22:34:19,467 [pid 30458] INFO: Machine info: {'cpu_percent': 7.4, 'memory_total': 17179869184, 'memory_available': 4061429760, 'memory_percent': 76.4, 'memory_used': 6322454528, 'system_info': {'system': 'Darwin', 'node': 'GooseMacdeMacBook-Air.local', 'release': '24.6.0', 'version': 'Darwin Kernel Version 24.6.0: Mon Jul 14 11:30:40 PDT 2025; root:xnu-11417.140.69~1/RELEASE_ARM64_T8132', 'machine': 'arm64', 'processor': 'arm'}}
+2025-12-23 22:34:19,472 [pid 30458] INFO: Starting Multi-Alignment PPO Experiment
+2025-12-23 22:34:19,473 [pid 30458] INFO: Variant: A
+2025-12-23 22:34:19,473 [pid 30458] INFO: Environment: CartPole-v1
+2025-12-23 22:34:19,474 [pid 30458] INFO: Config: {'name': 'cartpole_variant_a', 'data_dir': './Experiments/cartpole_variant_a/data', 'result_dir': './Experiments/cartpole_variant_a/results', 'log_dir': './Experiments/cartpole_variant_a/logs', 'experiment_dir': './Experiments/cartpole_variant_a/', 'K': None, 'category': None, 'variant': 'A', 'env_name': 'CartPole-v1', 'learning_rate': 0.0003, 'num_steps': 128, 'total_timesteps': 80000, 'gamma': 0.99, 'gae_lambda': 0.95, 'update_epochs': 4, 'clip_coef': 0.2, 'ent_coef': 0.001, 'vf_coef': 0.5, 'max_grad_norm': 0.5, 'batch_size': 64, 'num_objectives': 2}
+2025-12-23 22:34:19,475 [pid 30458] INFO: Starting training...

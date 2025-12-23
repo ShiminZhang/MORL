@@ -1,0 +1,22 @@
+2025-12-23 23:01:44,385 [pid 32446] INFO: Experiment walker_variant_a started at 20251223_230144
+2025-12-23 23:01:44,387 [pid 32446] INFO: Using device: cpu
+2025-12-23 23:01:44,939 [pid 32446] INFO: Experiment walker_variant_a started
+2025-12-23 23:01:44,940 [pid 32446] INFO: Experiment config: <src.experiments.multi_alignment_ppo.MultiAlignmentPPOConfig object at 0x1048dcb00>
+2025-12-23 23:01:45,970 [pid 32446] INFO: Machine info: {'cpu_percent': 6.3, 'memory_total': 17179869184, 'memory_available': 4422139904, 'memory_percent': 74.3, 'memory_used': 6557122560, 'system_info': {'system': 'Darwin', 'node': 'GooseMacdeMacBook-Air.local', 'release': '24.6.0', 'version': 'Darwin Kernel Version 24.6.0: Mon Jul 14 11:30:40 PDT 2025; root:xnu-11417.140.69~1/RELEASE_ARM64_T8132', 'machine': 'arm64', 'processor': 'arm'}}
+2025-12-23 23:01:45,975 [pid 32446] INFO: Starting Multi-Alignment PPO Experiment
+2025-12-23 23:01:45,976 [pid 32446] INFO: Variant: A
+2025-12-23 23:01:45,976 [pid 32446] INFO: Environment: Walker2d-v4
+2025-12-23 23:01:45,977 [pid 32446] INFO: Config: {'name': 'walker_variant_a', 'data_dir': './Experiments/walker_variant_a/data', 'result_dir': './Experiments/walker_variant_a/results', 'log_dir': './Experiments/walker_variant_a/logs', 'experiment_dir': './Experiments/walker_variant_a/', 'K': None, 'category': None, 'variant': 'A', 'env_name': 'Walker2d-v4', 'learning_rate': 0.0003, 'num_steps': 2048, 'total_timesteps': 1000000, 'gamma': 0.99, 'gae_lambda': 0.95, 'update_epochs': 10, 'clip_coef': 0.2, 'ent_coef': 0.0, 'vf_coef': 0.5, 'max_grad_norm': 0.5, 'batch_size': 64, 'num_objectives': 3}
+2025-12-23 23:01:45,978 [pid 32446] INFO: Starting training...
+2025-12-23 23:06:39,226 [pid 32446] INFO: Starting evaluation...
+2025-12-23 23:06:39,239 [pid 32446] INFO: Results saved to ./Experiments/walker_variant_a/results/variant_a_results.json
+2025-12-23 23:06:39,240 [pid 32446] INFO: Experiment walker_variant_b started at 20251223_230639
+2025-12-23 23:06:39,241 [pid 32446] INFO: Using device: cpu
+2025-12-23 23:06:39,245 [pid 32446] INFO: Experiment walker_variant_b started
+2025-12-23 23:06:39,246 [pid 32446] INFO: Experiment config: <src.experiments.multi_alignment_ppo.MultiAlignmentPPOConfig object at 0x119d48560>
+2025-12-23 23:06:40,251 [pid 32446] INFO: Machine info: {'cpu_percent': 6.9, 'memory_total': 17179869184, 'memory_available': 4481335296, 'memory_percent': 73.9, 'memory_used': 6443581440, 'system_info': {'system': 'Darwin', 'node': 'GooseMacdeMacBook-Air.local', 'release': '24.6.0', 'version': 'Darwin Kernel Version 24.6.0: Mon Jul 14 11:30:40 PDT 2025; root:xnu-11417.140.69~1/RELEASE_ARM64_T8132', 'machine': 'arm64', 'processor': 'arm'}}
+2025-12-23 23:06:40,255 [pid 32446] INFO: Starting Multi-Alignment PPO Experiment
+2025-12-23 23:06:40,256 [pid 32446] INFO: Variant: B
+2025-12-23 23:06:40,256 [pid 32446] INFO: Environment: Walker2d-v4
+2025-12-23 23:06:40,257 [pid 32446] INFO: Config: {'name': 'walker_variant_b', 'data_dir': './Experiments/walker_variant_b/data', 'result_dir': './Experiments/walker_variant_b/results', 'log_dir': './Experiments/walker_variant_b/logs', 'experiment_dir': './Experiments/walker_variant_b/', 'K': None, 'category': None, 'variant': 'B', 'env_name': 'Walker2d-v4', 'learning_rate': 0.0003, 'num_steps': 2048, 'total_timesteps': 1000000, 'gamma': 0.99, 'gae_lambda': 0.95, 'update_epochs': 10, 'clip_coef': 0.2, 'ent_coef': 0.0, 'vf_coef': 0.5, 'max_grad_norm': 0.5, 'batch_size': 64, 'num_objectives': 3}
+2025-12-23 23:06:40,260 [pid 32446] INFO: Starting training...
