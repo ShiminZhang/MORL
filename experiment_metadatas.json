@@ -1,0 +1,47 @@
+{
+    "cartpole_variant_a": {
+        "name": "cartpole_variant_a",
+        "data_dir": "./Experiments/cartpole_variant_a/data",
+        "result_dir": "./Experiments/cartpole_variant_a/results",
+        "log_dir": "./Experiments/cartpole_variant_a/logs",
+        "K": null,
+        "category": null,
+        "experiment_dir": "./Experiments/cartpole_variant_a/"
+    },
+    "cartpole_variant_b": {
+        "name": "cartpole_variant_b",
+        "data_dir": "./Experiments/cartpole_variant_b/data",
+        "result_dir": "./Experiments/cartpole_variant_b/results",
+        "log_dir": "./Experiments/cartpole_variant_b/logs",
+        "K": null,
+        "category": null,
+        "experiment_dir": "./Experiments/cartpole_variant_b/"
+    },
+    "cartpole_variant_c": {
+        "name": "cartpole_variant_c",
+        "data_dir": "./Experiments/cartpole_variant_c/data",
+        "result_dir": "./Experiments/cartpole_variant_c/results",
+        "log_dir": "./Experiments/cartpole_variant_c/logs",
+        "K": null,
+        "category": null,
+        "experiment_dir": "./Experiments/cartpole_variant_c/"
+    },
+    "walker_variant_a": {
+        "name": "walker_variant_a",
+        "data_dir": "./Experiments/walker_variant_a/data",
+        "result_dir": "./Experiments/walker_variant_a/results",
+        "log_dir": "./Experiments/walker_variant_a/logs",
+        "K": null,
+        "category": null,
+        "experiment_dir": "./Experiments/walker_variant_a/"
+    },
+    "walker_variant_b": {
+        "name": "walker_variant_b",
+        "data_dir": "./Experiments/walker_variant_b/data",
+        "result_dir": "./Experiments/walker_variant_b/results",
+        "log_dir": "./Experiments/walker_variant_b/logs",
+        "K": null,
+        "category": null,
+        "experiment_dir": "./Experiments/walker_variant_b/"
+    }
+}
