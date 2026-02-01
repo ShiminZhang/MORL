@@ -6,10 +6,193 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import logging
+import argparse
+import os
+from pathlib import Path
 from typing import Dict, Any, Optional
 
 import gymnasium as gym
 from src.trainers.morl_trainer import MORLTrainer
+from src.utils.logger import get_logger
+from src.utils.paths import ensure_dir, get_figures_dir, get_saved_agents_dir
+from src.utils.weights import sample_poisson_weights
+
+
+def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
+    """Orthogonal initialization for neural network layers."""
+    torch.nn.init.orthogonal_(layer.weight, std)
+    torch.nn.init.constant_(layer.bias, bias_const)
+    return layer
+
+
+class VariantB_DiscreteAgent(nn.Module):
+    """
+    Variant B (Discrete): vector critic + categorical policy.
+    Uses wider MLP than Variant A to keep architectures distinct.
+    """
+
+    def __init__(self, env, num_objectives: int):
+        super().__init__()
+        obs_dim = env.observation_space.shape[0]
+        act_dim = env.action_space.n
+
+        # Match standalone ContinuousVectorAgent/variant_b_transformer style:
+        # simple 64-64 MLP without LayerNorm
+        self.critic = nn.Sequential(
+            layer_init(nn.Linear(obs_dim, 64)),
+            nn.Tanh(),
+            layer_init(nn.Linear(64, 64)),
+            nn.Tanh(),
+            layer_init(nn.Linear(64, num_objectives), std=1.0),
+        )
+        self.actor = nn.Sequential(
+            layer_init(nn.Linear(obs_dim, 64)),
+            nn.Tanh(),
+            layer_init(nn.Linear(64, 64)),
+            nn.Tanh(),
+            layer_init(nn.Linear(64, act_dim), std=0.01),
+        )
+
+    def get_value(self, x):
+        if x.dim() == 1:
+            x = x.unsqueeze(0)
+            return self.critic(x).squeeze(0)
+        return self.critic(x)
+
+    def get_action_and_value(self, x, action=None):
+        from torch.distributions.categorical import Categorical
+
+        squeeze_out = False
+        if x.dim() == 1:
+            x = x.unsqueeze(0)
+            squeeze_out = True
+
+        logits = self.actor(x)
+        dist = Categorical(logits=logits)
+        if action is None:
+            action = dist.sample()
+        else:
+            if action.dim() == 0:
+                action = action.unsqueeze(0)
+
+        log_prob = dist.log_prob(action)
+        entropy = dist.entropy()
+        value = self.critic(x)
+
+        if squeeze_out:
+            action = action.squeeze(0)
+            log_prob = log_prob.squeeze(0)
+            entropy = entropy.squeeze(0)
+            value = value.squeeze(0)
+
+        return action, log_prob, entropy, value
+
+
+class VariantB_ContinuousAgent(nn.Module):
+    """
+    Variant B (Continuous): vector critic + diagonal Gaussian policy.
+    Adds LayerNorm in the trunk to differ from Variant A/C.
+    """
+
+    def __init__(self, env, num_objectives: int):
+        super().__init__()
+        obs_dim = env.observation_space.shape[0]
+        action_dim = env.action_space.shape[0]
+
+        # Match ContinuousVectorAgent in variant_b_transformer:
+        # critic: obs -> 64 -> 64 -> K
+        # actor_mean: obs -> 64 -> 64 -> action_dim
+        self.critic = nn.Sequential(
+            layer_init(nn.Linear(obs_dim, 64)),
+            nn.Tanh(),
+            layer_init(nn.Linear(64, 64)),
+            nn.Tanh(),
+            layer_init(nn.Linear(64, num_objectives), std=1.0),
+        )
+        self.actor_mean = nn.Sequential(
+            layer_init(nn.Linear(obs_dim, 64)),
+            nn.Tanh(),
+            layer_init(nn.Linear(64, 64)),
+            nn.Tanh(),
+            layer_init(nn.Linear(64, action_dim), std=0.01),
+        )
+        self.actor_logstd = nn.Parameter(torch.zeros(1, action_dim))
+
+    def get_value(self, x):
+        squeeze_out = False
+        if x.dim() == 1:
+            x = x.unsqueeze(0)
+            squeeze_out = True
+        out = self.critic(x)
+        return out.squeeze(0) if squeeze_out else out
+
+    def get_action_and_value(self, x, action=None):
+        from torch.distributions.normal import Normal
+
+        squeeze_out = False
+        if x.dim() == 1:
+            x = x.unsqueeze(0)
+            squeeze_out = True
+
+        action_mean = self.actor_mean(x)
+        action_logstd = self.actor_logstd.expand_as(action_mean)
+        action_std = torch.exp(action_logstd)
+        dist = Normal(action_mean, action_std)
+
+        if action is None:
+            action = dist.sample()
+        else:
+            if action.dim() == 1:
+                action = action.unsqueeze(0)
+
+        log_prob = dist.log_prob(action).sum(1)
+        entropy = dist.entropy().sum(1)
+        value = self.critic(x)
+
+        if squeeze_out:
+            action = action.squeeze(0)
+            log_prob = log_prob.squeeze(0)
+            entropy = entropy.squeeze(0)
+            value = value.squeeze(0)
+
+        return action, log_prob, entropy, value
+
+
+class TransformerMixer(nn.Module):
+    """
+    Transformer-based advantage scalarizer.
+    Builds K tokens (one per objective) from [adv_k, w_k] and outputs a
+    scalar advantage via learned attention weights alpha.
+    """
+
+    def __init__(self, token_dim: int = 2, d_model: int = 32, nhead: int = 4, num_layers: int = 1):
+        super().__init__()
+        self.in_proj = nn.Linear(token_dim, d_model)
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model,
+            nhead=nhead,
+            batch_first=True,
+        )
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.out_proj = nn.Linear(d_model, 1)  # per-token logit
+
+    def forward(self, advantages: torch.Tensor, contexts: torch.Tensor):
+        """
+        Args:
+            advantages: [B, K]
+            contexts:   [B, K]
+        Returns:
+            scalar_adv: [B]
+            alpha:      [B, K]
+        """
+        feats = torch.stack([advantages, contexts], dim=-1)  # [B, K, 2]
+        x = self.in_proj(feats)  # [B, K, d_model]
+        x = self.encoder(x)  # [B, K, d_model]
+        logits = self.out_proj(x).squeeze(-1)  # [B, K]
+        alpha = torch.softmax(logits, dim=-1)  # [B, K]
+        scalar_adv = (alpha * advantages).sum(dim=-1)  # [B]
+        return scalar_adv, alpha
 
 
 class PPOTrainerB(MORLTrainer):
@@ -34,9 +217,12 @@ class PPOTrainerB(MORLTrainer):
         max_grad_norm=0.5,
         batch_size=64,
         num_objectives=2,
+        mixer_d_model: int = 32,
+        mixer_nhead: int = 4,
+        mixer_num_layers: int = 1,
+        mixer_learning_rate: float = 1e-4,
     ):
         super().__init__()
-        self.agent = agent
         self.env = env
         self.device = device
         self.learning_rate = learning_rate
@@ -51,12 +237,29 @@ class PPOTrainerB(MORLTrainer):
         self.max_grad_norm = max_grad_norm
         self.batch_size = batch_size
         self.num_objectives = num_objectives
-        
-        self.optimizer = optim.Adam(agent.parameters(), lr=learning_rate)
-        self.num_updates = total_timesteps // num_steps
-        
+
         # Determine if continuous action space (Box); Discrete has shape=() so we check type
         self.is_continuous = isinstance(env.action_space, gym.spaces.Box)
+
+        # Explicit default model definition (if agent is not provided)
+        if agent is None:
+            if self.is_continuous:
+                agent = VariantB_ContinuousAgent(self.env, num_objectives=self.num_objectives)
+            else:
+                agent = VariantB_DiscreteAgent(self.env, num_objectives=self.num_objectives)
+            agent = agent.to(self.device)
+
+        self.agent = agent
+        self.optimizer = optim.Adam(self.agent.parameters(), lr=learning_rate)
+        # Variant B always uses Transformer mixer (no fallback path)
+        self.mixer: TransformerMixer = TransformerMixer(
+            token_dim=2,
+            d_model=mixer_d_model,
+            nhead=mixer_nhead,
+            num_layers=mixer_num_layers,
+        ).to(self.device)
+        self.mixer_optimizer: optim.Optimizer = optim.Adam(self.mixer.parameters(), lr=mixer_learning_rate)
+        self.num_updates = total_timesteps // num_steps
         
         # Initialize buffers
         self._init_buffers()
@@ -81,12 +284,17 @@ class PPOTrainerB(MORLTrainer):
 
     def train(self, train_loader=None):
         """Main training loop."""
+        logger = get_logger("morl.trainer.B", level=logging.INFO)
         global_step = 0
         next_obs, _ = self.env.reset()
         next_obs = torch.Tensor(next_obs).to(self.device)
         next_done = torch.tensor(0.0).to(self.device)
 
-        print("Starting Training (Variant B: Q-Space Scalarization)...")
+        logger.info(
+            "[bold]Starting Training[/bold] (Variant B: Q-Space Scalarization + Transformer) | steps=%s | updates=%s",
+            self.total_timesteps,
+            self.num_updates,
+        )
 
         for update in range(1, self.num_updates + 1):
             # Rollout
@@ -133,10 +341,22 @@ class PPOTrainerB(MORLTrainer):
             loss = self._update(advantages, returns)
 
             if update % 20 == 0:
+                # Expanded reward logging (per-objective + weighted scalar)
                 train_scalar_rewards = (self.rewards * self.contexts).sum(dim=1).mean().item()
-                print(f"Update {update}/{self.num_updates}, Loss: {loss.item():.4f}, Mean Scalar Reward: {train_scalar_rewards:.2f}")
+                r_mean = self.rewards.mean(dim=0).detach().cpu().tolist()
 
-        print("Training Finished!")
+                r_str = ", ".join([f"r{i}={v:.2f}" for i, v in enumerate(r_mean)])
+
+                logger.info(
+                    "Update %s/%s | loss=%.4f | mean_scalar_reward=%.2f | rewards: %s",
+                    update,
+                    self.num_updates,
+                    loss.item(),
+                    train_scalar_rewards,
+                    r_str,
+                )
+
+        logger.info("[bold green]Training Finished![/bold green]")
         return self.agent
 
     def _compute_gae(self, next_obs, next_done):
@@ -179,9 +399,6 @@ class PPOTrainerB(MORLTrainer):
         b_returns = returns.reshape((-1, self.num_objectives))
         b_values = self.values.reshape((-1, self.num_objectives))
         b_contexts = self.contexts.reshape((-1, self.num_objectives))
-        
-        # Scalarize advantages: w1*A1 + w2*A2
-        scalar_advantages = (advantages * self.contexts).sum(dim=1).reshape(-1)
 
         # Mini-batch update
         b_inds = np.arange(self.num_steps)
@@ -192,6 +409,11 @@ class PPOTrainerB(MORLTrainer):
                 end = start + self.batch_size
                 mb_inds = b_inds[start:end]
 
+                # Scalarize advantages for this mini-batch
+                mb_adv_vec = advantages[mb_inds]
+                mb_ctx = b_contexts[mb_inds]
+                mb_adv, _ = self.mixer(mb_adv_vec, mb_ctx)
+
                 _, newlogprob, entropy, newvalue = self.agent.get_action_and_value(
                     b_obs[mb_inds], b_actions[mb_inds]
                 )
@@ -199,7 +421,6 @@ class PPOTrainerB(MORLTrainer):
                 ratio = logratio.exp()
 
                 # Variant B: Scalarize advantages before PPO
-                mb_adv = scalar_advantages[mb_inds]
                 mb_adv = (mb_adv - mb_adv.mean()) / (mb_adv.std() + 1e-8)
 
                 pg_loss1 = -mb_adv * ratio
@@ -212,45 +433,67 @@ class PPOTrainerB(MORLTrainer):
                 loss = pg_loss - self.ent_coef * entropy.mean() + self.vf_coef * v_loss
 
                 self.optimizer.zero_grad()
+                self.mixer_optimizer.zero_grad()
                 loss.backward()
                 if self.max_grad_norm is not None:
                     nn.utils.clip_grad_norm_(self.agent.parameters(), self.max_grad_norm)
                 self.optimizer.step()
+                self.mixer_optimizer.step()
 
         return loss
 
     def evaluate(self, eval_loader=None, test_weights=None, num_episodes=1):
         """Evaluate the agent with different preference weights."""
+        logger = get_logger("morl.trainer.B", level=logging.INFO)
         self.agent.eval()
         
         if test_weights is None:
-            test_weights = [
-                [1.0, 0.0],
-                [0.7, 0.3],
-                [0.5, 0.5],
-                [0.3, 0.7],
-                [0.0, 1.0]
-            ]
+            test_weights = sample_poisson_weights(num_samples=10, dim=self.num_objectives, lam=1.0)
 
         results = []
         
-        print(f"{'Weight (w1, w2)':<20} | {'Avg Position':<15} | {'Steps':<10}")
-        print("-" * 50)
+        logger.info(
+            "Evaluation started | episodes=%s | weights=%s | metric=mean(w·r) per step",
+            num_episodes,
+            len(test_weights),
+        )
 
         for w in test_weights:
             obs, _ = self.env.reset(options={'w': w})
-            obs = torch.Tensor(obs).to(self.device)
+            obs = torch.tensor(obs, dtype=torch.float32, device=self.device)
+
+            # Guard against potential observation-size mismatches between env and agent
+            if hasattr(self.agent, "actor_mean"):
+                expected_dim = self.agent.actor_mean[0].in_features
+            elif hasattr(self.agent, "actor"):
+                expected_dim = self.agent.actor[0].in_features
+            else:
+                expected_dim = obs.shape[0]
 
             positions = []
             steps = 0
+            weighted_returns = []
+            episode_curves = []
 
             for _ in range(num_episodes):
                 episode_positions = []
                 episode_steps = 0
+                episode_weighted_sum = 0.0
+                step_curve = []
                 
                 while True:
                     with torch.no_grad():
-                        action, _, _, _ = self.agent.get_action_and_value(obs)
+                        # If needed, pad/crop obs to the dimension the agent expects
+                        if obs.shape[0] != expected_dim:
+                            if obs.shape[0] < expected_dim:
+                                pad = torch.zeros(expected_dim - obs.shape[0], device=self.device, dtype=obs.dtype)
+                                obs_in = torch.cat([obs, pad], dim=0)
+                            else:
+                                obs_in = obs[-expected_dim:]
+                        else:
+                            obs_in = obs
+
+                        action, _, _, _ = self.agent.get_action_and_value(obs_in)
 
                     step_result = self.env.step(action.item() if not self.is_continuous else action.cpu().numpy())
                     real_next_obs = step_result[0]
@@ -260,17 +503,39 @@ class PPOTrainerB(MORLTrainer):
                     episode_positions.append(real_next_obs[0])
                     episode_steps += 1
 
+                    r_vec_raw = self.env.get_reward()
+                    if r_vec_raw is None:
+                        r_vec_raw = [0.0] * self.num_objectives
+                    r_vec = np.asarray(r_vec_raw, dtype=np.float32)
+                    step_wdotr = float(np.dot(np.asarray(w, dtype=np.float32), r_vec))
+                    episode_weighted_sum += step_wdotr
+                    step_curve.append(step_wdotr)
+
                     obs = torch.Tensor(real_next_obs).to(self.device)
                     if term or trunc:
                         break
                 
                 positions.extend(episode_positions)
                 steps += episode_steps
+                weighted_returns.append(episode_weighted_sum / max(episode_steps, 1))
+                episode_curves.append(step_curve)
 
-            avg_pos = np.mean(positions)
-            print(f"{str(w):<20} | {avg_pos: .4f}          | {steps:<10}")
+            avg_pos = float(np.mean(positions)) if len(positions) else 0.0
+            mean_weighted = float(np.mean(weighted_returns)) if len(weighted_returns) else 0.0
+
+            max_len = max((len(c) for c in episode_curves), default=0)
+            if max_len > 0:
+                padded = np.full((len(episode_curves), max_len), np.nan, dtype=np.float32)
+                for i, c in enumerate(episode_curves):
+                    padded[i, : len(c)] = np.asarray(c, dtype=np.float32)
+                w_curve = np.nanmean(padded, axis=0).astype(np.float32).tolist()
+            else:
+                w_curve = []
+            logger.info("w=%s | mean_wdotr=%.4f | avg_pos=%.4f | steps=%s", w, mean_weighted, avg_pos, int(steps))
             results.append({
                 'weight': [float(x) for x in w],
+                'mean_weighted_reward': mean_weighted,
+                'mean_wdotr_curve': w_curve,
                 'avg_position': float(avg_pos),
                 'steps': int(steps),
             })
@@ -278,3 +543,147 @@ class PPOTrainerB(MORLTrainer):
         self.agent.train()
         return results
 
+
+def _resolve_checkpoint_path(path_str: Optional[str]) -> Optional[str]:
+    """
+    Resolve save/load paths:
+    - If user passes a bare filename, store under project_root/saved_agents/
+    - If user passes a path with directories (or absolute path), respect it as-is
+    - If no suffix is provided, default to ".pth"
+    """
+    if not path_str:
+        return None
+    p = Path(path_str)
+    if p.is_absolute() or p.parent != Path("."):
+        return str(p)
+    filename = p.name
+    if Path(filename).suffix == "":
+        filename = f"{filename}.pth"
+    return str(ensure_dir(get_saved_agents_dir()) / filename)
+
+
+def _resolve_plot_path(path_str: Optional[str], env_name: str) -> str:
+    """
+    Resolve plot output paths:
+    - Default to project_root/figures/eval_curves_B_{env}.png
+    - If user passes a bare filename, place it under figures/
+    - If user passes a path with directories (or absolute path), respect it as-is
+    """
+    figures_dir = ensure_dir(get_figures_dir())
+    if not path_str:
+        return str(figures_dir / f"eval_curves_B_{env_name}.png")
+    p = Path(path_str)
+    if p.is_absolute() or p.parent != Path("."):
+        return str(p)
+    return str(figures_dir / p.name)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Run PPOTrainerB standalone (colored logs).")
+    parser.add_argument("--env", type=str, default="Walker2d-v5", choices=["CartPole-v1", "Walker2d-v5", "Humanoid-v5"])
+    parser.add_argument("--total_timesteps", type=int, default=None)
+    parser.add_argument("--learning_rate", type=float, default=3e-4)
+    parser.add_argument("--load", type=str, default=None, help="Load checkpoint path before training.")
+    parser.add_argument("--save", type=str, default=None, help="Save checkpoint path after training.")
+    parser.add_argument("--eval_only", action="store_true", help="Load and run evaluation only (skip training).")
+    parser.add_argument("--plot", action="store_true", help="Save evaluation curves plot as PNG.")
+    parser.add_argument("--plot_path", type=str, default=None, help="Output PNG path for --plot.")
+    args = parser.parse_args()
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    logger = get_logger("morl.trainer.B", level=logging.INFO)
+    logger.info("Device: %s", device)
+
+    from src.environments import SteerableCartPoleWrapper, SteerableHumanoidWrapper, SteerableWalkerWrapper
+
+    base_env = gym.make(args.env)
+    if args.env == "CartPole-v1":
+        env = SteerableCartPoleWrapper(base_env)
+    elif args.env == "Walker2d-v5":
+        env = SteerableWalkerWrapper(base_env)
+    else:
+        env = SteerableHumanoidWrapper(base_env)
+
+    is_cartpole = args.env == "CartPole-v1"
+    num_objectives = 2 if is_cartpole else 3
+    num_steps = 128 if is_cartpole else 2048
+    update_epochs = 4 if is_cartpole else 10
+    ent_coef = 0.001 if is_cartpole else 0.0
+    # Standalone Variant B transformer uses vf_coef=0.5 for Walker2d
+    vf_coef = 0.5
+    total_timesteps = args.total_timesteps if args.total_timesteps is not None else (80000 if is_cartpole else 1000000)
+
+    # Variant B always uses Transformer mixer.
+    trainer = PPOTrainerB(
+        agent=None,
+        env=env,
+        device=device,
+        learning_rate=args.learning_rate,
+        num_steps=num_steps,
+        total_timesteps=total_timesteps,
+        update_epochs=update_epochs,
+        ent_coef=ent_coef,
+        vf_coef=vf_coef,
+        num_objectives=num_objectives,
+    )
+
+    load_path = _resolve_checkpoint_path(args.load)
+    save_path = _resolve_checkpoint_path(args.save)
+    if load_path:
+        ckpt = torch.load(load_path, map_location=device)
+        if isinstance(ckpt, dict) and "agent_state_dict" in ckpt:
+            trainer.agent.load_state_dict(ckpt["agent_state_dict"])
+            trainer.mixer.load_state_dict(ckpt["mixer_state_dict"])
+        else:
+            # allow loading raw agent state_dict for backward compatibility
+            trainer.agent.load_state_dict(ckpt)
+        logger.info("[bold cyan]Loaded checkpoint[/bold cyan]: %s", load_path)
+
+    if not args.eval_only:
+        trainer.train()
+    results = trainer.evaluate(test_weights=None)
+
+    if args.plot:
+        try:
+            import matplotlib
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+
+            curves = [r for r in results if isinstance(r, dict) and r.get("mean_wdotr_curve") and r.get("weight") is not None]
+            if not curves:
+                logger.warning("No curves found to plot.")
+            else:
+                plt.figure(figsize=(10, 5))
+                for i, r in enumerate(curves):
+                    y = r["mean_wdotr_curve"]
+                    plt.plot(y, linewidth=1.5, label=f"w{i}")
+                plt.title(f"Variant B eval: mean(w·r_t) per step ({args.env})")
+                plt.xlabel("timestep")
+                plt.ylabel("w·r_t")
+                plt.legend(ncol=2, fontsize=8)
+                plt.tight_layout()
+
+                out_path = _resolve_plot_path(args.plot_path, args.env)
+                os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+                plt.savefig(out_path, dpi=200)
+                plt.close()
+                logger.info("[bold green]Saved plot[/bold green]: %s", out_path)
+        except Exception as e:
+            logger.error("Plot failed (matplotlib missing?): %s", e)
+
+    if save_path:
+        os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
+        torch.save(
+            {
+                "agent_state_dict": trainer.agent.state_dict(),
+                "mixer_state_dict": trainer.mixer.state_dict(),
+                "env": args.env,
+                "num_objectives": num_objectives,
+            },
+            save_path,
+        )
+        logger.info("[bold green]Saved checkpoint[/bold green]: %s", save_path)
+
+
+if __name__ == "__main__":
+    main()

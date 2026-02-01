@@ -1,44 +1,52 @@
 """
-Walker2d environment wrapper for Multi-Objective Reinforcement Learning.
-Supports 3 objectives: velocity, survival, and energy efficiency.
+Humanoid environment wrapper for Multi-Objective Reinforcement Learning.
+
+Targets Gymnasium MuJoCo `Humanoid-v5` and exposes 3 objectives:
+1) Velocity (forward reward)
+2) Survival (healthy reward)
+3) Energy/contact efficiency (negative control + contact costs)
 """
+
 import gymnasium as gym
 import numpy as np
 
 from src.environments.base_env import BaseMORLEnv
 
 
-class SteerableWalkerWrapper(gym.Wrapper, BaseMORLEnv):
+class SteerableHumanoidWrapper(gym.Wrapper, BaseMORLEnv):
     """
-    Walker2d wrapper with 3 objectives:
+    Humanoid wrapper with 3 objectives:
     1. Velocity (Forward Reward)
     2. Survival (Healthy Reward)
-    3. Energy Efficiency (Negative Control Cost)
+    3. Energy/Contact Efficiency (-(Control Cost + Contact Cost))
     """
+
     def __init__(self, env):
         gym.Wrapper.__init__(self, env)
         BaseMORLEnv.__init__(self)
+
         original_shape = env.observation_space.shape[0]
 
         # 3 objectives
         self.num_objectives = 3
 
-        # Observation = State(17) + Preference(3) = 20
+        # Observation = State + Preference(3)
         self.observation_space = gym.spaces.Box(
-            low=-np.inf, high=np.inf,
+            low=-np.inf,
+            high=np.inf,
             shape=(original_shape + self.num_objectives,),
-            dtype=np.float32
+            dtype=np.float32,
         )
+
         # Initialize weights (w1, w2, w3)
         self.current_w = np.array([0.33, 0.33, 0.33], dtype=np.float32)
 
     def reset(self, seed=None, options=None):
-        if options and 'w' in options:
-            self.current_w = np.array(options['w'], dtype=np.float32)
+        if options and "w" in options:
+            self.current_w = np.array(options["w"], dtype=np.float32)
         else:
-            # Random sample 3 weights and normalize
             w = np.random.rand(self.num_objectives)
-            self.current_w = w / w.sum()
+            self.current_w = (w / w.sum()).astype(np.float32)
 
         obs, info = self.env.reset(seed=seed, options=options)
         self._store_info(info)
@@ -49,22 +57,18 @@ class SteerableWalkerWrapper(gym.Wrapper, BaseMORLEnv):
     def step(self, action):
         obs, _, terminated, truncated, info = self.env.step(action)
 
-        """
-        Gymnasium Walker2d-v4 info only provides x_position/x_velocity.
-        Reward components must be reconstructed from the unwrapped env:
-          forward_reward = forward_reward_weight * x_velocity
-          healthy_reward = env.healthy_reward
-          ctrl_cost      = env.control_cost(action)
-        """
-        # Match reward decomposition used in `variant_*` scripts:
-        # - r_velocity = reward_forward
-        # - r_survive  = reward_survive
-        # - r_energy   = -reward_ctrl * 10.0
-        # Some gym versions expose these directly in info; otherwise reconstruct.
-        if ("reward_forward" in info) or ("reward_survive" in info) or ("reward_ctrl" in info):
+        # Prefer reward components from info when available (varies by gym version).
+        if (
+            ("reward_forward" in info)
+            or ("reward_survive" in info)
+            or ("reward_ctrl" in info)
+            or ("reward_contact" in info)
+        ):
             r_velocity = float(info.get("reward_forward", 0.0))
             r_survive = float(info.get("reward_survive", 0.0))
-            r_energy = -float(info.get("reward_ctrl", 0.0)) * 10.0
+            ctrl = float(info.get("reward_ctrl", 0.0))
+            contact = float(info.get("reward_contact", 0.0))
+            r_energy = -(ctrl + contact) * 10.0
         else:
             unwrapped = self.env.unwrapped
 
@@ -74,17 +78,29 @@ class SteerableWalkerWrapper(gym.Wrapper, BaseMORLEnv):
 
             r_survive = float(getattr(unwrapped, "healthy_reward", 0.0))
 
-            # control_cost(action) exists on Walker2dEnv; fallback to 0.0 if missing
+            # control_cost(action) exists on HumanoidEnv; fallback to 0.0 if missing
             if hasattr(unwrapped, "control_cost"):
                 ctrl_cost = float(unwrapped.control_cost(action))
             else:
                 ctrl_cost = 0.0
-            r_energy = -ctrl_cost * 10.0
 
-        # Assemble into 3D vector
+            contact_cost = 0.0
+            if hasattr(unwrapped, "contact_cost"):
+                # Gymnasium MuJoCo sometimes defines contact_cost(external_contact_forces)
+                try:
+                    contact_cost = float(unwrapped.contact_cost())
+                except TypeError:
+                    try:
+                        data = getattr(unwrapped, "data", None)
+                        forces = getattr(data, "cfrc_ext", None) if data is not None else None
+                        if forces is not None:
+                            contact_cost = float(unwrapped.contact_cost(forces))
+                    except Exception:
+                        contact_cost = 0.0
+
+            r_energy = -(ctrl_cost + contact_cost) * 10.0
+
         vec_reward = np.array([r_velocity, r_survive, r_energy], dtype=np.float32)
-
-        # Scalar log (sum) to satisfy gym API; trainer will use vector via get_reward
         scalar_log = float(vec_reward.sum())
 
         obs = np.asarray(obs, dtype=np.float32)

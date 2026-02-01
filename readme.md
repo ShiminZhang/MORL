@@ -41,10 +41,51 @@ This will add the project root to Python path, allowing absolute imports from `s
 python -m src.morl --variant A --env CartPole-v1 --name my_experiment
 
 # Run Variant B with Walker2d
-python -m src.morl --variant B --env Walker2d-v4 --name walker_experiment
+python -m src.morl --variant B --env Walker2d-v5 --name walker_experiment
 
 # Run Variant C with custom timesteps
 python -m src.morl --variant C --env CartPole-v1 --total_timesteps 100000
+```
+
+### Save / Load / Eval (Standalone Trainers)
+
+The standalone trainer entry points support saving/loading checkpoints and exporting evaluation curves.
+
+- **Default directories**
+  - Checkpoints: `saved_agents/`
+  - Evaluation figures: `figures/`
+
+If you pass a **bare filename** (no directory) to `--save/--load/--plot_path`, it will be resolved into the default directory above.
+If you pass a path **with directories** (e.g. `./somewhere/agent.pth`), it will be used as-is.
+
+```bash
+# Variant A: train, evaluate, save checkpoint to saved_agents/my_agent_a.pth
+python -m src.trainers.ppo_trainer_a --env Walker2d-v5 --save my_agent_a
+
+# Variant A: load saved_agents/my_agent_a.pth and only run evaluation
+python -m src.trainers.ppo_trainer_a --env Walker2d-v5 --load my_agent_a --eval_only
+```
+
+```bash
+# Variant B: train then save (includes both agent + mixer states)
+python -m src.trainers.ppo_trainer_b --env Walker2d-v5 --save my_agent_b
+
+# Variant C: train then save (may include synth_state_dict depending on settings)
+python -m src.trainers.ppo_trainer_c --env Walker2d-v5 --save my_agent_c
+
+# Variant D (ICA): train then save
+python -m src.trainers.ppo_trainer_ica --env Walker2d-v5 --save my_agent_d
+```
+
+```bash
+# Plot evaluation curves (default: figures/eval_curves_{variant}_{env}.png)
+python -m src.trainers.ppo_trainer_a --env Walker2d-v5 --load my_agent_a --eval_only --plot
+
+# Custom plot name under figures/
+python -m src.trainers.ppo_trainer_a --env Walker2d-v5 --load my_agent_a --eval_only --plot --plot_path my_plot.png
+
+# Fully custom plot path (respected as-is)
+python -m src.trainers.ppo_trainer_a --env Walker2d-v5 --load my_agent_a --eval_only --plot --plot_path ./out/plot.png
 ```
 
 ### Python API

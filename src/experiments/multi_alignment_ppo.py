@@ -12,8 +12,12 @@ import os
 from typing import Dict, Any, Optional
 
 from src.experiments.experiment import Experiment, ExperimentConfig
-from src.environments import ScalarRewardWrapper, SteerableCartPoleWrapper, SteerableWalkerWrapper
-from src.agents import Agent, VectorAgent, ContinuousScalarAgent, ContinuousVectorAgent
+from src.environments import (
+    ScalarRewardWrapper,
+    SteerableCartPoleWrapper,
+    SteerableHumanoidWrapper,
+    SteerableWalkerWrapper,
+)
 from src.trainers import PPOTrainerA, PPOTrainerB, PPOTrainerC
 
 
@@ -23,7 +27,7 @@ class MultiAlignmentPPOConfig(ExperimentConfig):
         self,
         name: str,
         variant: str = 'A',  # 'A', 'B', or 'C'
-        env_name: str = 'CartPole-v1',  # 'CartPole-v1' or 'Walker2d-v4'
+        env_name: str = 'Walker2d-v5',  # 'CartPole-v1' or 'Walker2d-v5'
         learning_rate: float = 3e-4,
         num_steps: int = 128,
         total_timesteps: int = 80000,
@@ -52,8 +56,9 @@ class MultiAlignmentPPOConfig(ExperimentConfig):
         self.max_grad_norm = max_grad_norm
         self.batch_size = batch_size
         
-        # Adjust for continuous environments
-        if env_name == 'Walker2d-v4':
+        # Adjust for continuous MuJoCo environments (Walker2d / Humanoid)
+        is_mujoco = env_name in ('Walker2d-v5', 'Humanoid-v5')
+        if is_mujoco:
             self.num_steps = 2048
             self.total_timesteps = 1000000
             self.update_epochs = 10
@@ -61,6 +66,13 @@ class MultiAlignmentPPOConfig(ExperimentConfig):
             self.num_objectives = 3
         else:
             self.num_objectives = 2
+
+        # Align value-loss coefficient with standalone variant scripts
+        if is_mujoco:
+            if variant in ('A', 'C'):
+                self.vf_coef = 0.05
+            elif variant == 'B':
+                self.vf_coef = 0.5
 
 
 class MultiAlignmentPPOExperiment(Experiment):
@@ -77,12 +89,12 @@ class MultiAlignmentPPOExperiment(Experiment):
         
         # Initialize environment
         self.env = self._create_environment()
-        
-        # Initialize agent
-        self.agent = self._create_agent()
-        
-        # Initialize trainer
+
+        # Initialize trainer (trainer will explicitly build default model if agent=None)
         self.trainer = self._create_trainer()
+
+        # Expose model from trainer for saving/eval consistency
+        self.agent = self.trainer.agent
         
     def _create_environment(self):
         """Create and wrap the environment."""
@@ -91,36 +103,26 @@ class MultiAlignmentPPOExperiment(Experiment):
         if self.config.variant == 'A':
             if self.config.env_name == 'CartPole-v1':
                 return ScalarRewardWrapper(base_env)
-            else:
-                # For Walker2d, Variant A uses scalar reward wrapper
+            elif self.config.env_name == 'Walker2d-v5':
                 return SteerableWalkerWrapper(base_env)
+            elif self.config.env_name == 'Humanoid-v5':
+                return SteerableHumanoidWrapper(base_env)
+            else:
+                raise ValueError(f"Unsupported env_name: {self.config.env_name}")
         else:
             if self.config.env_name == 'CartPole-v1':
                 return SteerableCartPoleWrapper(base_env)
-            else:
+            elif self.config.env_name == 'Walker2d-v5':
                 return SteerableWalkerWrapper(base_env)
-    
-    def _create_agent(self):
-        """Create the appropriate agent based on variant and environment."""
-        is_continuous = self.config.env_name == 'Walker2d-v4'
-        
-        if self.config.variant == 'A':
-            if is_continuous:
-                agent = ContinuousScalarAgent(self.env)
+            elif self.config.env_name == 'Humanoid-v5':
+                return SteerableHumanoidWrapper(base_env)
             else:
-                agent = Agent(self.env)
-        else:
-            if is_continuous:
-                agent = ContinuousVectorAgent(self.env, num_objectives=self.config.num_objectives)
-            else:
-                agent = VectorAgent(self.env)
-        
-        return agent.to(self.device)
+                raise ValueError(f"Unsupported env_name: {self.config.env_name}")
     
     def _create_trainer(self):
         """Create the appropriate PPO trainer based on variant."""
         trainer_kwargs = {
-            'agent': self.agent,
+            'agent': None,  # explicit default model is created inside trainer
             'env': self.env,
             'device': self.device,
             'learning_rate': self.config.learning_rate,
@@ -135,6 +137,7 @@ class MultiAlignmentPPOExperiment(Experiment):
             'max_grad_norm': self.config.max_grad_norm,
             'batch_size': self.config.batch_size,
         }
+        is_mujoco = self.config.env_name in ('Walker2d-v5', 'Humanoid-v5')
         
         if self.config.variant == 'A':
             trainer_kwargs['num_objectives'] = self.config.num_objectives
@@ -144,6 +147,9 @@ class MultiAlignmentPPOExperiment(Experiment):
             return PPOTrainerB(**trainer_kwargs)
         else:  # Variant C
             trainer_kwargs['num_objectives'] = self.config.num_objectives
+            # Enable gradient synthesizer mixing for the "variant_c_gradient" behavior
+            if is_mujoco:
+                trainer_kwargs['use_gradient_synthesizer'] = True
             return PPOTrainerC(**trainer_kwargs)
     
     def on_start(self):
@@ -175,9 +181,7 @@ class MultiAlignmentPPOExperiment(Experiment):
         # Evaluation
         self.logger.info("Starting evaluation...")
         print("\n=== Running Verification ===")
-        
-        test_weights = self._get_test_weights()
-        results = self.trainer.evaluate(test_weights=test_weights)
+        results = self.trainer.evaluate(test_weights=None)
         
         # Save results
         results_path = os.path.join(
@@ -241,4 +245,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

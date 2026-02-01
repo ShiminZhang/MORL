@@ -17,8 +17,8 @@ def main():
     parser = argparse.ArgumentParser(description='MORL Experiments')
     parser.add_argument('--variant', type=str, default='A', choices=['A', 'B', 'C'],
                         help='MORL variant: A (Reward Scalarization), B (Value Scalarization), C (Gradient Mixing)')
-    parser.add_argument('--env', type=str, default='CartPole-v1', 
-                        choices=['CartPole-v1', 'Walker2d-v4'],
+    parser.add_argument('--env', type=str, default='Walker2d-v5', 
+                        choices=['CartPole-v1', 'Walker2d-v5', 'Humanoid-v5'],
                         help='Environment name')
     parser.add_argument('--name', type=str, default=None,
                         help='Experiment name')

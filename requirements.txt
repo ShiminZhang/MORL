@@ -4,3 +4,4 @@ torch
 psutil
 rich
 imageio
+matplotlib
