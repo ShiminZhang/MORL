@@ -9,6 +9,7 @@ import gymnasium as gym
 import numpy as np
 import torch
 import os
+import json
 from typing import Dict, Any, Optional
 
 from src.experiments.experiment import Experiment, ExperimentConfig
@@ -17,8 +18,13 @@ from src.environments import (
     SteerableCartPoleWrapper,
     SteerableHumanoidWrapper,
     SteerableWalkerWrapper,
+    SteerableDeepSeaTreasureWrapper,
 )
 from src.trainers import PPOTrainerA, PPOTrainerB, PPOTrainerC
+
+# Environment groups
+MUJOCO_ENVS = ('Walker2d-v5', 'Humanoid-v5')
+MO_GYM_ENVS = ('deep-sea-treasure-v0',)  # Add future mo_gymnasium envs here
 
 
 class MultiAlignmentPPOConfig(ExperimentConfig):
@@ -56,23 +62,27 @@ class MultiAlignmentPPOConfig(ExperimentConfig):
         self.max_grad_norm = max_grad_norm
         self.batch_size = batch_size
         
-        # Adjust for continuous MuJoCo environments (Walker2d / Humanoid)
-        is_mujoco = env_name in ('Walker2d-v5', 'Humanoid-v5')
+        is_mujoco = env_name in MUJOCO_ENVS
+        is_mo_gym = env_name in MO_GYM_ENVS
+        
         if is_mujoco:
             self.num_steps = 2048
             self.total_timesteps = 1000000
             self.update_epochs = 10
             self.ent_coef = 0.0
             self.num_objectives = 3
-        else:
+            self.vf_coef = 0.5 if variant == 'B' else 0.05
+        elif is_mo_gym:
+            self.num_steps = 64
+            self.total_timesteps = total_timesteps if total_timesteps != 80000 else 30000
+            self.update_epochs = 4
+            self.ent_coef = 0.05
+            self.vf_coef = 0.5
             self.num_objectives = 2
-
-        # Align value-loss coefficient with standalone variant scripts
-        if is_mujoco:
-            if variant in ('A', 'C'):
-                self.vf_coef = 0.05
-            elif variant == 'B':
-                self.vf_coef = 0.5
+            self.learning_rate = 1e-3
+        else:
+            # CartPole default
+            self.num_objectives = 2
 
 
 class MultiAlignmentPPOExperiment(Experiment):
@@ -97,27 +107,28 @@ class MultiAlignmentPPOExperiment(Experiment):
         self.agent = self.trainer.agent
         
     def _create_environment(self):
-        """Create and wrap the environment."""
-        base_env = gym.make(self.config.env_name)
+         """Create and wrap the environment."""
+        env_name = self.config.env_name
+        is_mo_gym = env_name in MO_GYM_ENVS
         
-        if self.config.variant == 'A':
-            if self.config.env_name == 'CartPole-v1':
-                return ScalarRewardWrapper(base_env)
-            elif self.config.env_name == 'Walker2d-v5':
-                return SteerableWalkerWrapper(base_env)
-            elif self.config.env_name == 'Humanoid-v5':
-                return SteerableHumanoidWrapper(base_env)
-            else:
-                raise ValueError(f"Unsupported env_name: {self.config.env_name}")
+        # MO-Gymnasium environments (wrapper creates env internally)
+        if is_mo_gym:
+            if env_name == 'deep-sea-treasure-v0':
+                return SteerableDeepSeaTreasureWrapper()
+            raise ValueError(f"Unsupported mo_gym env: {env_name}")
+        
+        # Standard gymnasium environments
+        base_env = gym.make(env_name)
+        
+        # All variants use the same steerable wrapper (provides vector rewards)
+        if env_name == 'CartPole-v1':
+            return SteerableCartPoleWrapper(base_env)
+        elif env_name == 'Walker2d-v5':
+            return SteerableWalkerWrapper(base_env)
+        elif env_name == 'Humanoid-v5':
+            return SteerableHumanoidWrapper(base_env)
         else:
-            if self.config.env_name == 'CartPole-v1':
-                return SteerableCartPoleWrapper(base_env)
-            elif self.config.env_name == 'Walker2d-v5':
-                return SteerableWalkerWrapper(base_env)
-            elif self.config.env_name == 'Humanoid-v5':
-                return SteerableHumanoidWrapper(base_env)
-            else:
-                raise ValueError(f"Unsupported env_name: {self.config.env_name}")
+            raise ValueError(f"Unsupported env_name: {env_name}")
     
     def _create_trainer(self):
         """Create the appropriate PPO trainer based on variant."""
@@ -136,18 +147,15 @@ class MultiAlignmentPPOExperiment(Experiment):
             'vf_coef': self.config.vf_coef,
             'max_grad_norm': self.config.max_grad_norm,
             'batch_size': self.config.batch_size,
+            'num_objectives': self.config.num_objectives,
         }
-        is_mujoco = self.config.env_name in ('Walker2d-v5', 'Humanoid-v5')
+        is_mujoco = self.config.env_name in MUJOCO_ENVS
         
         if self.config.variant == 'A':
-            trainer_kwargs['num_objectives'] = self.config.num_objectives
             return PPOTrainerA(**trainer_kwargs)
         elif self.config.variant == 'B':
-            trainer_kwargs['num_objectives'] = self.config.num_objectives
             return PPOTrainerB(**trainer_kwargs)
-        else:  # Variant C
-            trainer_kwargs['num_objectives'] = self.config.num_objectives
-            # Enable gradient synthesizer mixing for the "variant_c_gradient" behavior
+        else:
             if is_mujoco:
                 trainer_kwargs['use_gradient_synthesizer'] = True
             return PPOTrainerC(**trainer_kwargs)
@@ -158,6 +166,7 @@ class MultiAlignmentPPOExperiment(Experiment):
         self.logger.info(f"Variant: {self.config.variant}")
         self.logger.info(f"Environment: {self.config.env_name}")
         self.logger.info(f"Config: {self.config.__dict__}")
+        self.logger.info(f"Starting experiment: {self.config.variant} on {self.config.env_name}")
     
     def on_end(self):
         """Called at the end of the experiment."""
@@ -214,33 +223,26 @@ class MultiAlignmentPPOExperiment(Experiment):
 
 
 def main():
-    """Example usage."""
-    # Example: Variant A with CartPole
-    config_a = MultiAlignmentPPOConfig(
-        name="cartpole_variant_a",
-        variant='A',
-        env_name='CartPole-v1',
+    """Example usage with CartPole."""
+    for variant in ['A', 'B', 'C']:
+        config = MultiAlignmentPPOConfig(
+            name=f"cartpole_variant_{variant.lower()}",
+            variant=variant,
+            env_name='CartPole-v1',
+        )
+        MultiAlignmentPPOExperiment(config).run()
+
+
+def run_deep_sea_treasure(variant: str = 'B'):
+    config = MultiAlignmentPPOConfig(
+        name=f"dst_variant_{variant.lower()}",
+        variant=variant,
+        env_name='deep-sea-treasure-v0',
+        total_timesteps=50000,
     )
-    experiment_a = MultiAlignmentPPOExperiment(config_a)
-    experiment_a.run()
-    
-    # Example: Variant B with CartPole
-    config_b = MultiAlignmentPPOConfig(
-        name="cartpole_variant_b",
-        variant='B',
-        env_name='CartPole-v1',
-    )
-    experiment_b = MultiAlignmentPPOExperiment(config_b)
-    experiment_b.run()
-    
-    # Example: Variant C with CartPole
-    config_c = MultiAlignmentPPOConfig(
-        name="cartpole_variant_c",
-        variant='C',
-        env_name='CartPole-v1',
-    )
-    experiment_c = MultiAlignmentPPOExperiment(config_c)
-    experiment_c.run()
+    experiment = MultiAlignmentPPOExperiment(config)
+    experiment.run()
+    return experiment
 
 
 if __name__ == "__main__":

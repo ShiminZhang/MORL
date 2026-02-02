@@ -1,5 +1,6 @@
 """
-Example script to run MORL experiments.
+Run MORL experiments.
+Usage: python run_example.py [cartpole|walker|dst] [variant]
 """
 import sys
 from pathlib import Path
@@ -41,24 +42,42 @@ def run_walker_experiments():
         config = MultiAlignmentPPOConfig(
             name=f"walker_variant_{variant.lower()}",
             variant=variant,
-            env_name='Walker2d-v4',
-            total_timesteps=100000,  # Reduced for quick testing
+            env_name='Walker2d-v5',
+            total_timesteps=100000,
+        )
+        experiment = MultiAlignmentPPOExperiment(config)
+        experiment.run()
+
+
+def run_deep_sea_treasure_experiments():
+    
+    print("=" * 60)
+    print("Running Deep Sea Treasure Experiments")
+    print("=" * 60)
+    
+    for variant in ['A', 'B', 'C']:
+        print(f"\n--- Variant {variant} ---")
+        config = MultiAlignmentPPOConfig(
+            name=f"dst_variant_{variant.lower()}",
+            variant=variant,
+            env_name='deep-sea-treasure-v0',
+            total_timesteps=100000,
         )
         experiment = MultiAlignmentPPOExperiment(config)
         experiment.run()
 
 
 if __name__ == "__main__":
-    import sys
-    
     if len(sys.argv) > 1:
-        if sys.argv[1] == 'cartpole':
+        cmd = sys.argv[1].lower()
+        
+        if cmd == 'cartpole':
             run_cartpole_experiments()
-        elif sys.argv[1] == 'walker':
+        elif cmd == 'walker':
             run_walker_experiments()
+        elif cmd == 'dst':
+            run_deep_sea_treasure_experiments()
         else:
-            print("Usage: python run_example.py [cartpole|walker]")
+            print("Usage: python run_example.py [cartpole|walker|dst] [variant]")
     else:
-        # Run CartPole by default
         run_cartpole_experiments()
-
