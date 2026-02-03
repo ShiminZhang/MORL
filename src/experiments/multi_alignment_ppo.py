@@ -74,10 +74,10 @@ class MultiAlignmentPPOConfig(ExperimentConfig):
             self.vf_coef = 0.5 if variant == 'B' else 0.05
         elif is_mo_gym:
             self.num_steps = 64
-            self.total_timesteps = total_timesteps if total_timesteps != 80000 else 30000
+            self.total_timesteps = 100000
             self.update_epochs = 4
-            self.ent_coef = 0.05
-            self.vf_coef = 0.5
+            self.ent_coef = 0.1
+            self.vf_coef = 0.5 if variant == 'B' else 0.05
             self.num_objectives = 2
             self.learning_rate = 1e-3
         else:

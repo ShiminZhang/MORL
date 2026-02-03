@@ -599,7 +599,7 @@ def _resolve_plot_path(path_str: Optional[str], env_name: str) -> str:
 
 def main():
     parser = argparse.ArgumentParser(description="Run PPOTrainerB standalone (colored logs).")
-    parser.add_argument("--env", type=str, default="Walker2d-v5", choices=["CartPole-v1", "Walker2d-v5", "Humanoid-v5"])
+    parser.add_argument("--env", type=str, default="Walker2d-v5", choices=["CartPole-v1", "Walker2d-v5", "Humanoid-v5", "deep-sea-treasure-v0"])
     parser.add_argument("--total_timesteps", type=int, default=None)
     parser.add_argument("--learning_rate", type=float, default=3e-4)
     parser.add_argument("--load", type=str, default=None, help="Load checkpoint path before training.")
@@ -613,24 +613,48 @@ def main():
     logger = get_logger("morl.trainer.B", level=logging.INFO)
     logger.info("Device: %s", device)
 
-    from src.environments import SteerableCartPoleWrapper, SteerableHumanoidWrapper, SteerableWalkerWrapper
+    from src.environments import SteerableCartPoleWrapper, SteerableHumanoidWrapper, SteerableWalkerWrapper, SteerableDeepSeaTreasureWrapper
 
-    base_env = gym.make(args.env)
-    if args.env == "CartPole-v1":
-        env = SteerableCartPoleWrapper(base_env)
-    elif args.env == "Walker2d-v5":
-        env = SteerableWalkerWrapper(base_env)
+    # Environment creation
+    if args.env == "deep-sea-treasure-v0":
+        env = SteerableDeepSeaTreasureWrapper()
     else:
-        env = SteerableHumanoidWrapper(base_env)
+        base_env = gym.make(args.env)
+        if args.env == "CartPole-v1":
+            env = SteerableCartPoleWrapper(base_env)
+        elif args.env == "Walker2d-v5":
+            env = SteerableWalkerWrapper(base_env)
+        else:
+            env = SteerableHumanoidWrapper(base_env)
 
+    # Hyperparameters by environment type
     is_cartpole = args.env == "CartPole-v1"
-    num_objectives = 2 if is_cartpole else 3
-    num_steps = 128 if is_cartpole else 2048
-    update_epochs = 4 if is_cartpole else 10
-    ent_coef = 0.001 if is_cartpole else 0.0
-    # Standalone Variant B transformer uses vf_coef=0.5 for Walker2d
-    vf_coef = 0.5
-    total_timesteps = args.total_timesteps if args.total_timesteps is not None else (80000 if is_cartpole else 1000000)
+    is_dst = args.env == "deep-sea-treasure-v0"
+    is_mujoco = args.env in ("Walker2d-v5", "Humanoid-v5")
+    
+    if is_dst:
+        num_objectives = 2
+        num_steps = 64
+        update_epochs = 4
+        ent_coef = 0.05
+        vf_coef = 0.5
+        default_timesteps = 30000
+    elif is_cartpole:
+        num_objectives = 2
+        num_steps = 128
+        update_epochs = 4
+        ent_coef = 0.001
+        vf_coef = 0.5
+        default_timesteps = 80000
+    else:  # MuJoCo
+        num_objectives = 3
+        num_steps = 2048
+        update_epochs = 10
+        ent_coef = 0.0
+        vf_coef = 0.5
+        default_timesteps = 1000000
+    
+    total_timesteps = args.total_timesteps if args.total_timesteps is not None else default_timesteps
 
     # Variant B always uses Transformer mixer.
     trainer = PPOTrainerB(

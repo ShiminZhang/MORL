@@ -1,2 +1,21 @@
 data/
+
+# Python cache
+__pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+env/
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store

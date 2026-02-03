@@ -1,4 +1,5 @@
 gymnasium
+mo-gymnasium
 numpy
 torch
 psutil

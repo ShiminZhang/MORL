@@ -56,7 +56,7 @@ class SteerableDeepSeaTreasureWrapper(gym.Wrapper, BaseMORLEnv):
         
         if self.normalize_rewards:
             r_treasure = vec_reward[0] / self.treasure_max
-            r_time = -vec_reward[1] / 10.0
+            r_time = vec_reward[1] / 100.0
             vec_reward_normalized = np.array([r_treasure, r_time], dtype=np.float32)
         else:
             vec_reward_normalized = vec_reward
