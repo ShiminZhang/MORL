@@ -779,7 +779,7 @@ def _resolve_plot_path(path_str: Optional[str], env_name: str) -> str:
 
 def main():
     parser = argparse.ArgumentParser(description="Run PPOTrainerICA standalone (Variant D / ICA).")
-    parser.add_argument("--env", type=str, default="Walker2d-v5", choices=["CartPole-v1", "Walker2d-v5", "Humanoid-v5"])
+    parser.add_argument("--env", type=str, default="Walker2d-v5", choices=["CartPole-v1", "Walker2d-v5", "Humanoid-v5", "dm_control_walker-walk", "dm_control_hopper-hop", "dm_control_humanoid-walk"])
     parser.add_argument("--total_timesteps", type=int, default=None)
     parser.add_argument("--learning_rate", type=float, default=3e-4)
     parser.add_argument("--load", type=str, default=None, help="Load checkpoint path before training.")
@@ -793,20 +793,28 @@ def main():
     logger = get_logger("morl.trainer.ICA", level=logging.INFO)
     logger.info("Device: %s", device)
 
-    from src.environments import SteerableCartPoleWrapper, SteerableHumanoidWrapper, SteerableWalkerWrapper
+    from src.environments import SteerableCartPoleWrapper, SteerableHumanoidWrapper, SteerableWalkerWrapper, make_dm_control_walker, make_dm_control_hopper, make_dm_control_humanoid
 
-    base_env = gym.make(args.env)
-    if args.env == "CartPole-v1":
-        env = SteerableCartPoleWrapper(base_env)
-    elif args.env == "Walker2d-v5":
-        env = SteerableWalkerWrapper(base_env)
-    elif args.env == "Humanoid-v5":
-        env = SteerableHumanoidWrapper(base_env)
+    if args.env == "dm_control_walker-walk":
+        env = make_dm_control_walker()
+    elif args.env == "dm_control_hopper-hop":
+        env = make_dm_control_hopper()
+    elif args.env == "dm_control_humanoid-walk":
+        env = make_dm_control_humanoid()
     else:
-        raise ValueError(f"Unsupported environment: {args.env}")
+        base_env = gym.make(args.env)
+        if args.env == "CartPole-v1":
+            env = SteerableCartPoleWrapper(base_env)
+        elif args.env == "Walker2d-v5":
+            env = SteerableWalkerWrapper(base_env)
+        elif args.env == "Humanoid-v5":
+            env = SteerableHumanoidWrapper(base_env)
+        else:
+            raise ValueError(f"Unsupported environment: {args.env}")
 
     is_cartpole = args.env == "CartPole-v1"
-    num_objectives = 2 if is_cartpole else 3
+    is_dm_control = args.env.startswith("dm_control_")
+    num_objectives = 2 if (is_cartpole or is_dm_control) else 3
     num_steps = 128 if is_cartpole else 2048
     update_epochs = 4 if is_cartpole else 10
     ent_coef = 0.001 if is_cartpole else 0.0
