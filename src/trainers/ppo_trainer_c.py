@@ -493,11 +493,10 @@ class PPOTrainerC(MORLTrainer):
                             -adv_k * ratio,  # unclipped surrogate：-A * r
                             -adv_k * torch.clamp(ratio, 1 - self.clip_coef, 1 + self.clip_coef),  # clipped surrogate：-A * clip(r)
                         )
-                        w_k = b_contexts[mb_inds, k]  # 取出第 k 维权重（偏好）w_k：形状 [B]
 
                         self.optimizer.zero_grad()  # 清空上一轮累积的梯度（准备对当前 k 计算梯度）
-                        weighted_loss_k = (w_k * loss_k_element).mean()  # 用 w_k 对该 objective 的 policy loss 加权并求均值
-                        weighted_loss_k.backward(retain_graph=True)  # 反传得到梯度；retain_graph=True 因为还要对其他 k 以及 value loss 继续用同一图
+                        loss_k = loss_k_element.mean()
+                        loss_k.backward(retain_graph=True)  # 反传得到梯度；retain_graph=True 因为还要对其他 k 以及 value loss 继续用同一图
                         grad_vectors[k] = _get_grad_vector(self.actor_params)  # 把 actor 参数的梯度展平成向量 g_k（长度 D）
 
                     # Entropy gradient for actor（熵正则的梯度：鼓励探索）
@@ -508,17 +507,19 @@ class PPOTrainerC(MORLTrainer):
 
                     # Assemble gradient matrix G: [D, K]（把各 objective 的梯度拼成矩阵）
                     G = torch.stack([grad_vectors[k] for k in range(self.num_objectives)], dim=1)  # G 的列是 g_k，形状 [D, K]
+                    # Column-wise L2 normalization（与 notebook vc_svd 对齐：只在分解时看方向，不让模长主导）
+                    G_norm = G / (torch.norm(G, p=2, dim=0, keepdim=True) + 1e-8)
 
-                    # SVD to get U, S, V (all detached from autograd)（对梯度矩阵做 SVD，得到可解释的梯度子空间基）
-                    U, S, Vh = torch.linalg.svd(G, full_matrices=False)  # G=U diag(S) Vh（这里 Vh 是转置形式）
+                    # SVD to get U, S, V (all detached from autograd)（对归一化后的梯度矩阵做 SVD，得到可解释的梯度子空间基）
+                    U, S, Vh = torch.linalg.svd(G_norm, full_matrices=False)  # G_norm=U diag(S) Vh（这里 Vh 是转置形式）
                     V = Vh  # torch.linalg.svd 返回的是 Vh；这里直接当作 V（后续按该实现使用）
 
-                    # Sign alignment (stabilize U/V)（SVD 的符号不唯一：对齐符号避免 alpha 学习时抖动）
-                    max_abs_idx = torch.argmax(torch.abs(U), dim=0)  # 每个奇异向量列找到绝对值最大的元素索引
-                    signs = torch.sign(U[max_abs_idx, torch.arange(U.shape[1], device=U.device)])  # 取该最大元素的符号作为该列的“标准符号”
-                    signs = torch.where(signs == 0, torch.ones_like(signs), signs)  # 若符号为 0（极少见），用 +1 代替
-                    U = U * signs  # 对 U 的每列乘上符号（统一符号方向）
-                    V = V * signs.unsqueeze(1)  # 对应地对 V 做同样的符号调整，保持分解一致性
+                    # Sign alignment (stabilize U/V, match vc_svd notebook)（用 U 与 G_norm 的点积符号对齐）
+                    dot_products = torch.sum(U * G_norm, dim=0)
+                    signs = torch.sign(dot_products)
+                    signs = torch.where(signs == 0, torch.ones_like(signs), signs)  # 避免 0 符号
+                    U = U * signs
+                    V = V * signs.unsqueeze(1)
 
                     mb_obs_avg = b_obs[mb_inds].mean(dim=0)  # 计算当前 mini-batch 的平均 state（作为 synthesizer 的输入之一）
                     mb_pref_avg = b_contexts[mb_inds].mean(dim=0)  # 计算当前 mini-batch 的平均偏好 w（作为 synthesizer 的输入之一）

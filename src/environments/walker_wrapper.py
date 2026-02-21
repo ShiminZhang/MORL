@@ -64,7 +64,7 @@ class SteerableWalkerWrapper(gym.Wrapper, BaseMORLEnv):
         if ("reward_forward" in info) or ("reward_survive" in info) or ("reward_ctrl" in info):
             r_velocity = float(info.get("reward_forward", 0.0))
             r_survive = float(info.get("reward_survive", 0.0))
-            r_energy = -float(info.get("reward_ctrl", 0.0)) * 10.0
+            r_energy = -float(info.get("reward_ctrl", 0.0))
         else:
             unwrapped = self.env.unwrapped
 
@@ -79,7 +79,7 @@ class SteerableWalkerWrapper(gym.Wrapper, BaseMORLEnv):
                 ctrl_cost = float(unwrapped.control_cost(action))
             else:
                 ctrl_cost = 0.0
-            r_energy = -ctrl_cost * 10.0
+            r_energy = -ctrl_cost
 
         # Assemble into 3D vector
         vec_reward = np.array([r_velocity, r_survive, r_energy], dtype=np.float32)
