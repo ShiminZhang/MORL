@@ -101,8 +101,8 @@ def plot_env(env_name, make_fn, model_prefix, save_name):
 
     plt.suptitle(f'{env_name} - Smoothed Evaluation Curves', fontsize=14)
     plt.tight_layout()
-    plt.savefig(f'figures/{save_name}.png', dpi=150)
-    print(f"Saved: figures/{save_name}.png")
+    plt.savefig(f'figures/smoothed/{save_name}.png', dpi=150)
+    print(f"Saved: figures/smoothed/{save_name}.png")
 
 
 def main():

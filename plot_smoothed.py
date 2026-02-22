@@ -101,7 +101,7 @@ def main():
     env = make_dm_control_walker()
     num_objectives = 2
 
-    Path("figures").mkdir(exist_ok=True)
+    Path("figures/smoothed").mkdir(parents=True, exist_ok=True)
 
     for model_path, variant, AgentClass, needs_num_obj in models:
         print(f"\nEvaluating Variant {variant}...")
@@ -116,7 +116,7 @@ def main():
 
         results = evaluate_model(model, env, weights_list, episodes=1, max_steps=1000)
 
-        save_path = f"figures/smoothed_{variant}_dm_walker.png"
+        save_path = f"figures/smoothed/smoothed_{variant}_dm_walker.png"
         plot_smoothed(
             results,
             f"Variant {variant} - Smoothed Eval (dm_control_walker)",

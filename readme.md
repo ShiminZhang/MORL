@@ -4,14 +4,19 @@ A flexible framework for implementing and experimenting with Multi-Objective Rei
 
 ## Features
 
-- **Three MORL Variants**:
+- **Four MORL Variants**:
   - **Variant A**: Reward Scalarization
-  - **Variant B**: Value/Q-Space Scalarization
-  - **Variant C**: Gradient-Space Combination
+  - **Variant B**: Value/Q-Space Scalarization (Transformer Mixer)
+  - **Variant C**: Gradient-Space Combination (SVD + Synthesizer)
+  - **Variant D (ICA)**: Independent Component Advantage
 
 - **Multiple Environments**:
   - CartPole-v1 (discrete actions, 2 objectives)
-  - Walker2d-v4 (continuous actions, 3 objectives)
+  - Walker2d-v5 (continuous actions, 3 objectives)
+  - Humanoid-v5 (continuous actions, 3 objectives)
+  - DM Control Walker-Walk (continuous actions, 2 objectives)
+  - DM Control Hopper-Hop (continuous actions, 2 objectives)
+  - DM Control Humanoid-Walk (continuous actions, 2 objectives)
 
 - **Modular Architecture**:
   - Environment wrappers
@@ -45,6 +50,9 @@ python -m src.morl --variant B --env Walker2d-v5 --name walker_experiment
 
 # Run Variant C with custom timesteps
 python -m src.morl --variant C --env CartPole-v1 --total_timesteps 100000
+
+# Run Variant D (ICA) with Walker2d
+python -m src.morl --variant D --env Walker2d-v5 --name walker_ica
 ```
 
 ### Save / Load / Eval (Standalone Trainers)
@@ -75,6 +83,17 @@ python -m src.trainers.ppo_trainer_c --env Walker2d-v5 --save my_agent_c
 
 # Variant D (ICA): train then save
 python -m src.trainers.ppo_trainer_ica --env Walker2d-v5 --save my_agent_d
+```
+
+```bash
+# DM Control environments
+python -m src.trainers.ppo_trainer_a --env dm_control_walker-walk --save dm_walker_a
+python -m src.trainers.ppo_trainer_b --env dm_control_hopper-hop --save dm_hopper_b
+python -m src.trainers.ppo_trainer_c --env dm_control_humanoid-walk --save dm_humanoid_c
+python -m src.trainers.ppo_trainer_ica --env dm_control_walker-walk --save dm_walker_d
+
+# Custom training steps
+python -m src.trainers.ppo_trainer_b --env dm_control_walker-walk --total_timesteps 100000 --save dm_walker_b
 ```
 
 ```bash
@@ -116,18 +135,31 @@ MORL/
 │   │   └── continuous_agent.py
 │   ├── environments/     # Environment wrappers
 │   │   ├── cartpole_wrappers.py
-│   │   └── walker_wrapper.py
-│   ├── trainers/         # Training algorithms
+│   │   ├── walker_wrapper.py
+│   │   ├── humanoid_wrapper.py
+│   │   ├── dm_control_walker_wrapper.py
+│   │   ├── dm_control_hopper_wrapper.py
+│   │   └── dm_control_humanoid_wrapper.py
+│   ├── trainers/         # Training algorithms (one per variant)
 │   │   ├── morl_trainer.py
-│   │   └── ppo_trainer.py
+│   │   ├── ppo_trainer_a.py
+│   │   ├── ppo_trainer_b.py
+│   │   ├── ppo_trainer_c.py
+│   │   └── ppo_trainer_ica.py
 │   ├── experiments/      # Experiment classes
 │   │   ├── experiment.py
 │   │   └── multi_alignment_ppo.py
 │   └── utils/            # Utility functions
-│       └── paths.py
-├── data/                 # Data directory
-├── models/               # Saved models
-├── Experiments/          # Experiment outputs
+│       ├── paths.py
+│       └── weights.py
+├── saved_agents/         # Saved model checkpoints
+├── figures/              # Evaluation figures
+│   ├── eval_curves/      # Per-variant eval curves from trainer --plot
+│   ├── smoothed/         # Smoothed eval curves and cosine similarity
+│   └── raw_reward_test/  # Raw reward experiment outputs
+├── plot_smoothed_all.py      # Smoothed plots (fixed weights, all dm_control envs)
+├── plot_smoothed_poisson.py  # Smoothed plots (Poisson weights, trainer-style)
+├── eval_morl.py              # Cosine similarity evaluation
 └── requirements.txt
 ```
 
