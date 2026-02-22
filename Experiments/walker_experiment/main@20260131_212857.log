@@ -1,0 +1,4 @@
+2026-01-31 21:28:57,834 [pid 2350] INFO: Experiment walker_experiment started at 20260131_212857
+2026-01-31 21:28:57,908 [pid 2350] INFO: Using device: cuda
+2026-01-31 21:28:59,384 [pid 2350] INFO: Experiment walker_experiment started
+2026-01-31 21:28:59,386 [pid 2350] INFO: Experiment config: <src.experiments.multi_alignment_ppo.MultiAlignmentPPOConfig object at 0x7e1c26ad9d60>

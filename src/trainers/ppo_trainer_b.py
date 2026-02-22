@@ -162,13 +162,23 @@ class VariantB_ContinuousAgent(nn.Module):
 class TransformerMixer(nn.Module):
     """
     Transformer-based advantage scalarizer.
-    Builds K tokens (one per objective) from [adv_k, w_k] and outputs a
-    scalar advantage via learned attention weights alpha.
+    Builds K tokens (one per objective) from [adv_k, w_k] plus a shared
+    state-dependent bias and outputs a scalar advantage via learned
+    attention weights alpha.
     """
 
-    def __init__(self, token_dim: int = 2, d_model: int = 32, nhead: int = 4, num_layers: int = 1):
+    def __init__(
+        self,
+        state_dim: int,
+        token_dim: int = 2,
+        d_model: int = 32,
+        nhead: int = 4,
+        num_layers: int = 1,
+    ):
         super().__init__()
         self.in_proj = nn.Linear(token_dim, d_model)
+        # Simple state encoder: same embedding added to all objective tokens
+        self.state_proj = nn.Linear(state_dim, d_model)
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=d_model,
             nhead=nhead,
@@ -177,17 +187,23 @@ class TransformerMixer(nn.Module):
         self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         self.out_proj = nn.Linear(d_model, 1)  # per-token logit
 
-    def forward(self, advantages: torch.Tensor, contexts: torch.Tensor):
+    def forward(self, advantages: torch.Tensor, contexts: torch.Tensor, states: torch.Tensor):
         """
         Args:
             advantages: [B, K]
             contexts:   [B, K]
+            states:     [B, state_dim]
         Returns:
             scalar_adv: [B]
             alpha:      [B, K]
         """
         feats = torch.stack([advantages, contexts], dim=-1)  # [B, K, 2]
         x = self.in_proj(feats)  # [B, K, d_model]
+
+        # Encode state once per sample and broadcast to all objective tokens
+        state_emb = self.state_proj(states)  # [B, d_model]
+        x = x + state_emb.unsqueeze(1)  # [B, K, d_model]
+
         x = self.encoder(x)  # [B, K, d_model]
         logits = self.out_proj(x).squeeze(-1)  # [B, K]
         alpha = torch.softmax(logits, dim=-1)  # [B, K]
@@ -252,7 +268,9 @@ class PPOTrainerB(MORLTrainer):
         self.agent = agent
         self.optimizer = optim.Adam(self.agent.parameters(), lr=learning_rate)
         # Variant B always uses Transformer mixer (no fallback path)
+        obs_dim = self.env.observation_space.shape[0]
         self.mixer: TransformerMixer = TransformerMixer(
+            state_dim=obs_dim,
             token_dim=2,
             d_model=mixer_d_model,
             nhead=mixer_nhead,
@@ -412,7 +430,8 @@ class PPOTrainerB(MORLTrainer):
                 # Scalarize advantages for this mini-batch
                 mb_adv_vec = advantages[mb_inds]
                 mb_ctx = b_contexts[mb_inds]
-                mb_adv, _ = self.mixer(mb_adv_vec, mb_ctx)
+                mb_states = b_obs[mb_inds]
+                mb_adv, _ = self.mixer(mb_adv_vec, mb_ctx, mb_states)
 
                 _, newlogprob, entropy, newvalue = self.agent.get_action_and_value(
                     b_obs[mb_inds], b_actions[mb_inds]

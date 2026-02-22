@@ -43,5 +43,14 @@
         "K": null,
         "category": null,
         "experiment_dir": "./Experiments/walker_variant_b/"
+    },
+    "walker_experiment": {
+        "name": "walker_experiment",
+        "data_dir": "./Experiments/walker_experiment/data",
+        "result_dir": "./Experiments/walker_experiment/results",
+        "log_dir": "./Experiments/walker_experiment/logs",
+        "K": null,
+        "category": null,
+        "experiment_dir": "./Experiments/walker_experiment/"
     }
 }
