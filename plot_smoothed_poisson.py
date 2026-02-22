@@ -1,6 +1,8 @@
 """
 Smoothed evaluation plots using trainer-style random Poisson weights.
 """
+import os
+import glob
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
@@ -98,8 +100,16 @@ def plot_env(env_name, make_fn, model_prefix, save_name):
 
     plt.suptitle(f'{env_name} - Smoothed Eval (Poisson Weights)', fontsize=14)
     plt.tight_layout()
-    plt.savefig(f'figures/smoothed/{save_name}.png', dpi=150)
-    print(f"Saved: figures/smoothed/{save_name}.png")
+    # Auto-increment filename: save_name_01, _02, ...
+    existing = sorted(glob.glob(f'figures/smoothed/{save_name}_[0-9][0-9].png'))
+    if existing:
+        last_num = int(os.path.basename(existing[-1]).replace(f'{save_name}_', '').replace('.png', ''))
+        next_num = last_num + 1
+    else:
+        next_num = 1
+    out_path = f'figures/smoothed/{save_name}_{next_num:02d}.png'
+    plt.savefig(out_path, dpi=150)
+    print(f"Saved: {out_path}")
 
 
 def main():
