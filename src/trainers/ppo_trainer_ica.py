@@ -178,7 +178,7 @@ class NewtonSchulzIndependenceLoss(nn.Module):
         self,
         num_objectives: int,
         ns_steps: int = 6,
-        kurtosis_weight: float = 0.1,
+        kurtosis_weight: float = 1.0,
         eps: float = 1e-6,
         clamp_z: float = 5.0,
     ):
@@ -233,7 +233,7 @@ class NewtonSchulzIndependenceLoss(nn.Module):
 
         m4 = torch.mean(z_standardized**4, dim=0)
         ica_loss = -torch.sum(torch.log(m4 + 1.0))
-        return ica_loss * self.kurtosis_weight, Z, W, m4
+        return ica_loss * self.kurtosis_weight, Z, W
 
 
 class GradientAttentionSynthesizer(nn.Module):
@@ -291,7 +291,8 @@ class GradientAttentionSynthesizer(nn.Module):
         latent = q * k
         logits = self.classifier(latent)  # [n_bins]
         probs = torch.softmax(logits / 0.8, dim=-1)  # [n_bins]
-        alpha = torch.matmul(probs, self.codebook)  # [K]
+        safe_codebook = torch.nn.functional.softplus(self.codebook) + 1e-8 # [n_bins, K]
+        alpha = torch.matmul(probs, safe_codebook)  # [K]
         return alpha, logits
 
 
@@ -339,6 +340,13 @@ def _add_grad_vector(params: list[torch.nn.Parameter], grad_vector: torch.Tensor
             p.grad.add_(payload)
         pointer += numel
 
+def _set_grad_vector(params: list[torch.nn.Parameter], grad_vector: torch.Tensor) -> None:
+    pointer = 0
+    for p in params:
+        numel = p.numel()
+        payload = grad_vector[pointer : pointer + numel].view_as(p)
+        p.grad = payload.clone()
+        pointer += numel
 
 class PPOTrainerICA(MORLTrainer):
     """
@@ -368,12 +376,13 @@ class PPOTrainerICA(MORLTrainer):
         num_objectives: int = 3,
         # ICA specifics
         ns_steps: int = 6,
-        kurtosis_weight: float = 0.1,
+        kurtosis_weight: float = 1.0,
         actor_clip_norm_small: float = 0.05,
         # Synthesizer
         use_gradient_synthesizer: bool = True,
         synthesizer_bins: int = 100,
         synthesizer_learning_rate: float = 1e-4,
+        lambda_ica: float = 0.1,
     ):
         super().__init__()
         self.env = env
@@ -393,7 +402,7 @@ class PPOTrainerICA(MORLTrainer):
         self.actor_clip_norm_small = actor_clip_norm_small
 
         self.use_gradient_synthesizer = use_gradient_synthesizer
-
+        self.lambda_ica = lambda_ica
         self.is_continuous = isinstance(env.action_space, gym.spaces.Box)
         if agent is None:
             if self.is_continuous:
@@ -577,9 +586,7 @@ class PPOTrainerICA(MORLTrainer):
                         -adv_k * ratio,  # unclipped：-A * r
                         -adv_k * torch.clamp(ratio, 1 - self.clip_coef, 1 + self.clip_coef),  # clipped：-A * clip(r)
                     )
-                    w_k = b_contexts[mb_inds, k]  # 取出偏好权重 w_k：[B]
-                    loss_k = (w_k * loss_k_element).mean()  # 用 w_k 对该 objective 的 policy loss 加权并求均值（vd 的做法）
-
+                    loss_k = loss_k_element.mean()  # 对 mini-batch 求平均，得到 scalar loss_k（只针对第 k 个 objective）
                     grads_k = torch.autograd.grad(  # 直接对 actor_params 求梯度（不使用 backward），并保留计算图给 ICA loss
                         loss_k,  # 被求导的 loss
                         self.actor_params,  # 只对 actor 参数求导（critic 不参与）
@@ -600,7 +607,7 @@ class PPOTrainerICA(MORLTrainer):
                 G = torch.stack(grad_vectors, dim=1)  # 拼成梯度矩阵 G=[D, K]（每列对应一个 objective 的梯度）
                 G_norm = G / (torch.norm(G, p=2, dim=0, keepdim=True) + 1e-8)  # 每列 L2 归一化，减少尺度差异对 ICA 的影响
 
-                ica_loss_val, Z, W, _m4 = self.ica_criterion(G_norm)  # ICA：得到正则 loss、白化后的 Z、以及变换矩阵 W
+                ica_loss_val, Z, W = self.ica_criterion(G_norm)  # ICA：得到正则 loss、白化后的 Z、以及变换矩阵 W
 
                 mb_obs_avg = b_obs[mb_inds].mean(dim=0)  # 当前 mini-batch 的平均 state（synthesizer 的 query 输入）
                 mb_pref_avg = b_contexts[mb_inds].mean(dim=0)  # 当前 mini-batch 的平均偏好 w（synthesizer 的 query 输入）
@@ -612,8 +619,16 @@ class PPOTrainerICA(MORLTrainer):
                 else:  # 否则退化：直接用偏好 w 作为 alpha
                     alpha = mb_pref_avg  # alpha=w（简单线性混合）
 
-                g_task = torch.matmul(Z, alpha)  # 用白化基 Z 组合得到任务梯度 g_task=[D]
-                g_final_actor = g_task + g_ent  # 最终要注入 actor 的梯度：任务梯度 + 熵梯度
+                g_task = torch.matmul(Z.detach(), alpha)  # 用白化基 Z 组合得到任务梯度 g_task=[D]
+                g_ica_parts = torch.autograd.grad(
+                    ica_loss_val,
+                    self.actor_params,
+                    retain_graph=True,
+                    create_graph=False,  # ICA loss 的梯度不需要二阶了（我们不对它求导），所以 create_graph=False
+                    allow_unused=False,
+                )
+                g_ica = _flatten_grads(g_ica_parts, self.actor_params)  # 展平成向量 g_ica（长度 D）
+                g_final_actor = g_task + g_ent + self.lambda_ica * g_ica  # 最终要注入 actor 的梯度：任务梯度 + 熵梯度 + ICA 梯度
 
                 # Critic update + ICA regularization (produces actor grads via ICA loss)  # 说明：先反传 value loss + ICA loss 得到 critic 梯度与 ICA 的高阶梯度
                 self.optimizer.zero_grad()  # 清空 agent 参数梯度
@@ -621,12 +636,8 @@ class PPOTrainerICA(MORLTrainer):
                     self.synth_optimizer.zero_grad()  # 同步清空 synthesizer 梯度（后面会训练它）
 
                 v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()  # 向量 value 的 MSE（对 K 维一起平均）
-                total_loss = self.vf_coef * v_loss + ica_loss_val  # 总损失：vf_coef * v_loss + ICA 正则项
-                total_loss.backward(retain_graph=True)  # 反传：critic 得到梯度；ICA loss 通过 create_graph 路径回到 actor
-
-                # Small clip on actor params (matches `variant_d_ica.py`)  # 说明：对 actor 参数单独小阈值裁剪（vd 用 0.05）
-                if self.actor_clip_norm_small is not None:  # 若设置了小裁剪阈值
-                    nn.utils.clip_grad_norm_(self.actor_params, max_norm=self.actor_clip_norm_small)  # 防止 actor 梯度过大导致不稳定
+                critic_loss = self.vf_coef * v_loss  # 总损失：vf_coef * v_loss + ICA 正则项
+                critic_loss.backward()  # 反传：critic 得到梯度；ICA loss 通过 create_graph 路径回到 actor
 
                 # Train synthesizer to align with target gradient G @ w  # 说明：训练 synthesizer，使 g_task 对齐线性目标梯度 G@w
                 synth_align = 0.0  # 记录余弦相似度（用于日志）
@@ -638,8 +649,12 @@ class PPOTrainerICA(MORLTrainer):
                     synth_align = float(cos_sim.mean().detach().cpu().item())  # 记录当前对齐分数
                     synth_loss.backward()  # 反传更新 synthesizer（因为 g_task 依赖 alpha，alpha 依赖 synthesizer）
 
-                # Inject actor gradient (additive, preserving ICA gradients)  # 说明：把 g_final_actor 以“加法”方式注入，避免覆盖 ICA loss 的梯度
-                _add_grad_vector(self.actor_params, g_final_actor)  # actor.grad += g_final_actor（逐参数切片相加）
+                # Inject actor gradient (overwrite, preserving ICA gradients)  # 说明：把 g_final_actor 覆盖 ICA loss 的梯度
+                _set_grad_vector(self.actor_params, g_final_actor)  
+
+                # # Small clip on actor params (matches `variant_d_ica.py`)  # 说明：对 actor 参数单独小阈值裁剪（vd 用 0.05）
+                # if self.actor_clip_norm_small is not None:  # 若设置了小裁剪阈值
+                #     nn.utils.clip_grad_norm_(self.actor_params, max_norm=self.actor_clip_norm_small)  # 防止 actor 梯度过大导致不稳定
 
                 if self.max_grad_norm is not None:  # 若启用全参数梯度裁剪
                     nn.utils.clip_grad_norm_(self.agent.parameters(), self.max_grad_norm)  # 对 agent 所有参数做裁剪（PPO 常用）
@@ -647,7 +662,7 @@ class PPOTrainerICA(MORLTrainer):
                 if self.synth_optimizer is not None:  # 若 synthesizer 存在
                     self.synth_optimizer.step()  # 更新 synthesizer
 
-                last_loss = total_loss.detach()  # 记录最后一次 mini-batch 的 total_loss（detach 只用于日志/返回）
+                last_loss = critic_loss.detach()  # 记录最后一次 mini-batch 的 total_loss（detach 只用于日志/返回）
                 metrics["ica_loss"] += float(ica_loss_val.detach().cpu().item())  # 累加 ICA loss（转成 float）
                 metrics["synth_align"] += float(synth_align)  # 累加对齐分数
                 metrics_count += 1  # mini-batch 计数 +1
@@ -821,6 +836,7 @@ def main():
         num_steps=num_steps,
         total_timesteps=total_timesteps,
         update_epochs=update_epochs,
+        kurtosis_weight=1.0,
         ent_coef=ent_coef,
         vf_coef=vf_coef,
         num_objectives=num_objectives,
