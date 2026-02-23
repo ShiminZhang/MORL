@@ -1,0 +1,39 @@
+2026-02-22 17:20:01,166 [pid 40954] INFO: Experiment dst_variant_a started at 20260222_172001
+2026-02-22 17:20:01,167 [pid 40954] INFO: Using device: cpu
+2026-02-22 17:20:01,814 [pid 40954] INFO: Experiment dst_variant_a started
+2026-02-22 17:20:01,815 [pid 40954] INFO: Experiment config: <src.experiments.multi_alignment_ppo.MultiAlignmentPPOConfig object at 0x101179730>
+2026-02-22 17:20:02,838 [pid 40954] INFO: Machine info: {'cpu_percent': 12.1, 'memory_total': 34359738368, 'memory_available': 7844708352, 'memory_percent': 77.2, 'memory_used': 10783195136, 'system_info': {'system': 'Darwin', 'node': 'Hes-MacBook-Pro.local', 'release': '24.6.0', 'version': 'Darwin Kernel Version 24.6.0: Mon Jul 14 11:30:30 PDT 2025; root:xnu-11417.140.69~1/RELEASE_ARM64_T6020', 'machine': 'arm64', 'processor': 'arm'}}
+2026-02-22 17:20:02,842 [pid 40954] INFO: Starting Multi-Alignment PPO Experiment
+2026-02-22 17:20:02,842 [pid 40954] INFO: Variant: A
+2026-02-22 17:20:02,842 [pid 40954] INFO: Environment: deep-sea-treasure-v0
+2026-02-22 17:20:02,843 [pid 40954] INFO: Config: {'name': 'dst_variant_a', 'data_dir': './Experiments/dst_variant_a/data', 'result_dir': './Experiments/dst_variant_a/results', 'log_dir': './Experiments/dst_variant_a/logs', 'experiment_dir': './Experiments/dst_variant_a/', 'K': None, 'category': None, 'variant': 'A', 'env_name': 'deep-sea-treasure-v0', 'learning_rate': 0.001, 'num_steps': 64, 'total_timesteps': 100000, 'gamma': 0.99, 'gae_lambda': 0.95, 'update_epochs': 4, 'clip_coef': 0.2, 'ent_coef': 0.1, 'vf_coef': 0.05, 'max_grad_norm': 0.5, 'batch_size': 64, 'num_objectives': 2}
+2026-02-22 17:20:02,844 [pid 40954] INFO: Starting experiment: A on deep-sea-treasure-v0
+2026-02-22 17:20:02,844 [pid 40954] INFO: Starting training...
+2026-02-22 17:20:25,007 [pid 40954] INFO: Starting evaluation...
+2026-02-22 17:20:25,034 [pid 40954] INFO: Results saved to ./Experiments/dst_variant_a/results/variant_a_results.json
+2026-02-22 17:20:25,035 [pid 40954] INFO: Experiment dst_variant_b started at 20260222_172025
+2026-02-22 17:20:25,035 [pid 40954] INFO: Using device: cpu
+2026-02-22 17:20:25,040 [pid 40954] INFO: Experiment dst_variant_b started
+2026-02-22 17:20:25,040 [pid 40954] INFO: Experiment config: <src.experiments.multi_alignment_ppo.MultiAlignmentPPOConfig object at 0x1037cd700>
+2026-02-22 17:20:26,046 [pid 40954] INFO: Machine info: {'cpu_percent': 24.9, 'memory_total': 34359738368, 'memory_available': 7507279872, 'memory_percent': 78.2, 'memory_used': 10445537280, 'system_info': {'system': 'Darwin', 'node': 'Hes-MacBook-Pro.local', 'release': '24.6.0', 'version': 'Darwin Kernel Version 24.6.0: Mon Jul 14 11:30:30 PDT 2025; root:xnu-11417.140.69~1/RELEASE_ARM64_T6020', 'machine': 'arm64', 'processor': 'arm'}}
+2026-02-22 17:20:26,048 [pid 40954] INFO: Starting Multi-Alignment PPO Experiment
+2026-02-22 17:20:26,049 [pid 40954] INFO: Variant: B
+2026-02-22 17:20:26,050 [pid 40954] INFO: Environment: deep-sea-treasure-v0
+2026-02-22 17:20:26,050 [pid 40954] INFO: Config: {'name': 'dst_variant_b', 'data_dir': './Experiments/dst_variant_b/data', 'result_dir': './Experiments/dst_variant_b/results', 'log_dir': './Experiments/dst_variant_b/logs', 'experiment_dir': './Experiments/dst_variant_b/', 'K': None, 'category': None, 'variant': 'B', 'env_name': 'deep-sea-treasure-v0', 'learning_rate': 0.001, 'num_steps': 64, 'total_timesteps': 100000, 'gamma': 0.99, 'gae_lambda': 0.95, 'update_epochs': 4, 'clip_coef': 0.2, 'ent_coef': 0.1, 'vf_coef': 0.5, 'max_grad_norm': 0.5, 'batch_size': 64, 'num_objectives': 2}
+2026-02-22 17:20:26,052 [pid 40954] INFO: Starting experiment: B on deep-sea-treasure-v0
+2026-02-22 17:20:26,053 [pid 40954] INFO: Starting training...
+2026-02-22 17:21:06,072 [pid 40954] INFO: Starting evaluation...
+2026-02-22 17:21:06,105 [pid 40954] INFO: Results saved to ./Experiments/dst_variant_b/results/variant_b_results.json
+2026-02-22 17:21:06,106 [pid 40954] INFO: Experiment dst_variant_c started at 20260222_172106
+2026-02-22 17:21:06,106 [pid 40954] INFO: Using device: cpu
+2026-02-22 17:21:06,108 [pid 40954] INFO: Experiment dst_variant_c started
+2026-02-22 17:21:06,109 [pid 40954] INFO: Experiment config: <src.experiments.multi_alignment_ppo.MultiAlignmentPPOConfig object at 0x10e21e9f0>
+2026-02-22 17:21:07,114 [pid 40954] INFO: Machine info: {'cpu_percent': 34.3, 'memory_total': 34359738368, 'memory_available': 8049246208, 'memory_percent': 76.6, 'memory_used': 10977771520, 'system_info': {'system': 'Darwin', 'node': 'Hes-MacBook-Pro.local', 'release': '24.6.0', 'version': 'Darwin Kernel Version 24.6.0: Mon Jul 14 11:30:30 PDT 2025; root:xnu-11417.140.69~1/RELEASE_ARM64_T6020', 'machine': 'arm64', 'processor': 'arm'}}
+2026-02-22 17:21:07,118 [pid 40954] INFO: Starting Multi-Alignment PPO Experiment
+2026-02-22 17:21:07,119 [pid 40954] INFO: Variant: C
+2026-02-22 17:21:07,120 [pid 40954] INFO: Environment: deep-sea-treasure-v0
+2026-02-22 17:21:07,121 [pid 40954] INFO: Config: {'name': 'dst_variant_c', 'data_dir': './Experiments/dst_variant_c/data', 'result_dir': './Experiments/dst_variant_c/results', 'log_dir': './Experiments/dst_variant_c/logs', 'experiment_dir': './Experiments/dst_variant_c/', 'K': None, 'category': None, 'variant': 'C', 'env_name': 'deep-sea-treasure-v0', 'learning_rate': 0.001, 'num_steps': 64, 'total_timesteps': 100000, 'gamma': 0.99, 'gae_lambda': 0.95, 'update_epochs': 4, 'clip_coef': 0.2, 'ent_coef': 0.1, 'vf_coef': 0.05, 'max_grad_norm': 0.5, 'batch_size': 64, 'num_objectives': 2}
+2026-02-22 17:21:07,124 [pid 40954] INFO: Starting experiment: C on deep-sea-treasure-v0
+2026-02-22 17:21:07,125 [pid 40954] INFO: Starting training...
+2026-02-22 17:21:28,089 [pid 40954] INFO: Starting evaluation...
+2026-02-22 17:21:28,119 [pid 40954] INFO: Results saved to ./Experiments/dst_variant_c/results/variant_c_results.json

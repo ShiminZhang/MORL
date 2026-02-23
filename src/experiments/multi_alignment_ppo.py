@@ -107,7 +107,7 @@ class MultiAlignmentPPOExperiment(Experiment):
         self.agent = self.trainer.agent
         
     def _create_environment(self):
-         """Create and wrap the environment."""
+        """Create and wrap the environment."""
         env_name = self.config.env_name
         is_mo_gym = env_name in MO_GYM_ENVS
         

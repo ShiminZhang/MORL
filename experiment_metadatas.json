@@ -52,5 +52,32 @@
         "K": null,
         "category": null,
         "experiment_dir": "./Experiments/walker_experiment/"
+    },
+    "dst_variant_a": {
+        "name": "dst_variant_a",
+        "data_dir": "./Experiments/dst_variant_a/data",
+        "result_dir": "./Experiments/dst_variant_a/results",
+        "log_dir": "./Experiments/dst_variant_a/logs",
+        "K": null,
+        "category": null,
+        "experiment_dir": "./Experiments/dst_variant_a/"
+    },
+    "dst_variant_b": {
+        "name": "dst_variant_b",
+        "data_dir": "./Experiments/dst_variant_b/data",
+        "result_dir": "./Experiments/dst_variant_b/results",
+        "log_dir": "./Experiments/dst_variant_b/logs",
+        "K": null,
+        "category": null,
+        "experiment_dir": "./Experiments/dst_variant_b/"
+    },
+    "dst_variant_c": {
+        "name": "dst_variant_c",
+        "data_dir": "./Experiments/dst_variant_c/data",
+        "result_dir": "./Experiments/dst_variant_c/results",
+        "log_dir": "./Experiments/dst_variant_c/logs",
+        "K": null,
+        "category": null,
+        "experiment_dir": "./Experiments/dst_variant_c/"
     }
 }
